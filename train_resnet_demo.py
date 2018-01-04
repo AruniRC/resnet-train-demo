@@ -2,8 +2,6 @@ import argparse
 import datetime
 import os
 import os.path as osp
-import shlex
-import subprocess
 import pytz
 
 import torch
@@ -22,10 +20,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# import models
+
 import train
-# import utils
-# import data_loader
 from config import configurations
 
 
@@ -186,33 +182,34 @@ def main():
 
 
     # -----------------------------------------------------------------------------
-    # Sanity-check: forward pass with a single batch
+    # [optional] Sanity-check: forward pass with a single batch
     # -----------------------------------------------------------------------------
-    dataiter = iter(val_loader)
-    img, label = dataiter.next()
+    DEBUG = False
+    if DEBUG:   
+        dataiter = iter(val_loader)
+        img, label = dataiter.next()
 
-    print 'Labels: ' + str(label.size()) # batchSize x num_class
-    print 'Input: ' + str(img.size())    # batchSize x 3 x 224 x224
+        print 'Labels: ' + str(label.size()) # batchSize x num_class
+        print 'Input: ' + str(img.size())    # batchSize x 3 x 224 x224
 
-    im = img.squeeze().numpy()
-    im = im[0,:,:,:]    # get first image in the batch
-    im = im.transpose((1,2,0)) # permute to 224x224x3
-    f = plt.figure()
-    plt.imshow(im)
-    plt.savefig('sanity-check-im.jpg')  # save transformed image in current folder
+        im = img.squeeze().numpy()
+        im = im[0,:,:,:]    # get first image in the batch
+        im = im.transpose((1,2,0)) # permute to 224x224x3
+        f = plt.figure()
+        plt.imshow(im)
+        plt.savefig('sanity-check-im.jpg')  # save transformed image in current folder
 
-    inputs = Variable(img)
-    if cuda:
-        inputs = inputs.cuda()
+        inputs = Variable(img)
+        if cuda:
+            inputs = inputs.cuda()
 
-    model.eval()
-    outputs = model(inputs)
-    print 'Network output: ' + str(outputs.size())
+        model.eval()
+        outputs = model(inputs)
+        print 'Network output: ' + str(outputs.size())
 
-    model.train()    
-
-    import pdb; pdb.set_trace()  # breakpoint 2d10c8cd //
-
+        model.train()
+    else:
+        pass
 
     # -----------------------------------------------------------------------------
     # Training

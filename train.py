@@ -4,7 +4,6 @@ import os
 import os.path as osp
 import shutil
 
-# import fcn
 import numpy as np
 import PIL.Image
 import pytz
@@ -15,53 +14,9 @@ import torch.nn.functional as F
 import tqdm
 
 import utils
-# import torchfcn
 import gc
 
 
-
-# -----------------------------------------------------------------------------
-def cross_entropy2d(input, target, weight=None, size_average=True):
-# -----------------------------------------------------------------------------
-    # input: (n, c, h, w), target: (n, h, w)
-    n, c, h, w = input.size()
-    # log_p: (n, c, h, w)
-    log_p = F.log_softmax(input)
-    # log_p: (n*h*w, c)
-    log_p = log_p.transpose(1, 2).transpose(2, 3).contiguous().view(-1, c)
-    log_p = log_p[target.view(n, h, w, 1).repeat(1, 1, 1, c) >= 0]
-    log_p = log_p.view(-1, c)
-    # target: (n*h*w,)
-    mask = target >= 0
-    target = target[mask]
-    loss = F.nll_loss(log_p, target, weight=weight, size_average=False)
-    if size_average:
-        loss /= mask.data.sum()
-    return loss
-
-
-# -----------------------------------------------------------------------------
-def kl_div2d(input, target, weight=None, size_average=True):
-# -----------------------------------------------------------------------------
-    # n, c, h, w = input.size()
-    # log_p: (n, c, h, w)
-    log_p = F.log_softmax(input)
-    target = target.permute(0,3,1,2) # 1 x num_bins x H x W
-    assert log_p.size() == target.size()
-    loss = F.kl_div(log_p, target, size_average=True)
-    return loss
-
-
-# -----------------------------------------------------------------------------
-def mse2d(input, target, weight=None, size_average=True):
-# -----------------------------------------------------------------------------
-    # n, c, h, w = input.size()
-    # log_p: (n, c, h, w)
-    target = target.permute(0,3,1,2) # 1 x num_bins x H x W
-    input = F.softmax(input)    
-    assert input.size() == target.size()
-    loss = F.mse_loss(input, target)
-    return loss
 
 
 
@@ -95,9 +50,9 @@ class Trainer(object):
             'epoch',
             'iteration',
             'train/loss',
-            'train/acc',
+            # 'train/acc',
             'valid/loss',
-            'valid/acc',
+            # 'valid/acc',
             'elapsed_time',
         ]
         if not osp.exists(osp.join(self.out, 'log.csv')):
@@ -127,37 +82,14 @@ class Trainer(object):
                 leave=True):
 
             # Computing val losses
-            if self.train_loader.dataset.bins == 'one-hot':
-                target_hue, target_chroma = target
-                if self.cuda:
-                    data, target_hue, target_chroma = \
-                        data.cuda(), target_hue.cuda(), target_chroma.cuda()
-                data, target_hue, target_chroma = \
-                    Variable(data), Variable(target_hue), Variable(target_chroma)
-                (score_hue, score_chroma) = self.model(data)
-
-                loss_hue = cross_entropy2d(score_hue, target_hue,
-                               size_average=self.size_average)
-                loss_chroma = cross_entropy2d(score_chroma, target_chroma,
-                               size_average=self.size_average)
-                if np.isnan(float(loss_hue.data[0])):
-                    raise ValueError('hue loss is NaN while validation')
-                if np.isnan(float(loss_chroma.data[0])):
-                    raise ValueError('chroma loss is NaN while validation')
-
-                loss = loss_chroma + loss_hue
-                val_loss += float(loss.data[0]) / len(data)
-                del loss_hue, loss_chroma
-
-            elif self.train_loader.dataset.bins == 'soft':
-                if self.cuda:
-                    data, target = data.cuda(), target.cuda()
-                data, target = Variable(data), Variable(target)
-                score = self.model(data)
-                loss = kl_div2d(score, target, size_average=self.size_average) # DEBUG: MSE loss
-                if np.isnan(float(loss.data[0])):
-                    raise ValueError('loss is NaN while validation')
-                val_loss += float(loss.data[0]) / len(data)
+            if self.cuda:
+                data, target = data.cuda(), target.cuda()
+            data, target = Variable(data), Variable(target)
+            score = self.model(data)
+            loss = kl_div2d(score, target, size_average=self.size_average) # DEBUG: MSE loss
+            if np.isnan(float(loss.data[0])):
+                raise ValueError('loss is NaN while validation')
+            val_loss += float(loss.data[0]) / len(data)
 
             # Visualization
             imgs = data.data.cpu()
@@ -281,15 +213,15 @@ class Trainer(object):
 
             # Logging
             with open(osp.join(self.out, 'log.csv'), 'a') as f:
-                # elapsed_time = (
-                #     datetime.datetime.now(pytz.timezone('US/Eastern')) -
-                #     self.timestamp_start).total_seconds()
-                # log = [self.epoch, self.iteration] + [loss.data[0]] + \
-                #     metrics.tolist() + [''] * 5 + [elapsed_time]
-                # log = map(str, log)
-                # f.write(','.join(log) + '\n')
-                print '\nEpoch: ' + str(self.epoch) + ' Iter: ' + str(self.iteration) + \
-                        ' Loss: ' + str(loss.data[0])
+                elapsed_time = (
+                    datetime.datetime.now(pytz.timezone('US/Eastern')) -
+                    self.timestamp_start).total_seconds()
+                log = [self.epoch, self.iteration] + [loss.data[0]] + \
+                      [''] * 5 + [elapsed_time]
+                log = map(str, log)
+                f.write(','.join(log) + '\n')
+                # print '\nEpoch: ' + str(self.epoch) + ' Iter: ' + str(self.iteration) + \
+                #         ' Loss: ' + str(loss.data[0])
 
             if self.iteration >= self.max_iter:
                 break

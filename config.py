@@ -14,7 +14,7 @@ configurations = {
 
     # python train_*.py -g 0 -c 1
     1: dict(
-        max_iteration=100,
+        max_iteration=500,
         lr=1.0e-3, # changed learning rate
         momentum=0.9,  
         weight_decay=0.0005,

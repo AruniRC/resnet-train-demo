@@ -1,4 +1,4 @@
-name: colorizer-fcn
+name: resnet-demo
 dependencies:
  - python=2.7
  - scipy
