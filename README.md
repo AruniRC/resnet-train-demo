@@ -4,9 +4,9 @@ Demo to train a ResNet model on a custom dataset. The code is written such that 
 
 ### Setup
 
-* (Install Anaconda)[https://conda.io/docs/user-guide/install/linux.html] if not already installed in the system
+* (Install Anaconda)[https://conda.io/docs/user-guide/install/linux.html] if not already installed in the system.
 * Create an Anaconda environment: `conda create -n resnet-demo python=2.7` and activate it: `source activate resnet-demo`.
-* Install PyTorch and TorchVision inside the Anaconda environment. First add a channel to conda: `conda config --add channels soumith`. Then install: `conda install pytorch torchvision cuda80 -c soumith`. 
+* Install PyTorch and TorchVision inside the Anaconda environment. First add a channel to conda: `conda config --add channels soumith`. Then install: `conda install pytorch torchvision cuda80 -c soumith`.
 * Install the dependencies using conda: `conda install scipy Pillow tqdm scikit-learn scikit-image numpy matplotlib ipython pyyaml`.
 
 
