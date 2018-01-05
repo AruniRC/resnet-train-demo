@@ -102,7 +102,7 @@ def main():
     traindir = args.dataset_path
     train_loader = torch.utils.data.DataLoader(
                     datasets.ImageFolder(traindir, transform), 
-                    batch_size=2, shuffle=True, **kwargs)
+                    batch_size=3, shuffle=True, **kwargs)
 
     # for demo purpose, set to be same as train
     val_loader = torch.utils.data.DataLoader(
@@ -120,7 +120,7 @@ def main():
     #   https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py
     # ResNet docs:
     #   http://pytorch.org/docs/master/torchvision/models.html#id3
-    model = torchvision.models.resnet50(pretrained=True)
+    model = torchvision.models.resnet50(pretrained=True) # Using pre-trained for demo purpose
 
     # by default, resnet has 1000 output categories
     print model.fc  # Check: Linear (2048 -> 1000)
@@ -144,7 +144,7 @@ def main():
     else:
         pass
 
-    # Loss - cross entropy between predicted scrores (unnormalized) and class labels
+    # Loss - cross entropy between predicted scores (unnormalized) and class labels
     # http://pytorch.org/docs/master/nn.html?highlight=crossentropyloss#crossentropyloss
     criterion = nn.CrossEntropyLoss()
 
@@ -211,6 +211,7 @@ def main():
     else:
         pass
 
+
     # -----------------------------------------------------------------------------
     # Training
     # -----------------------------------------------------------------------------
@@ -232,3 +233,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

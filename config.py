@@ -20,8 +20,15 @@ configurations = {
         weight_decay=0.0005,
         interval_validate=10,
         optim='Adam',
-        train_set='tiny',
-        val_set='tiny',
+    ),
+
+    2: dict(
+        max_iteration=100,
+        lr=1.0e-3, # changed learning rate
+        momentum=0.9,  
+        weight_decay=0.0005,
+        interval_validate=10,
+        optim='Adam',
     ),
 
 }

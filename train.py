@@ -17,6 +17,17 @@ import utils
 import gc
 
 
+def lr_scheduler(optimizer, epoch, init_lr=0.001, lr_decay_epoch=7):
+    """Decay learning rate by a factor of 0.1 every lr_decay_epoch epochs."""
+    lr = init_lr * (0.1**(epoch // lr_decay_epoch))
+
+    if epoch % lr_decay_epoch == 0:
+        print('LR is set to {}'.format(lr))
+
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+
+    return optimizer
 
 
 
@@ -33,6 +44,7 @@ class Trainer(object):
         self.optim = optimizer
         self.train_loader = train_loader
         self.val_loader = val_loader
+        self.best_acc = 0
 
         self.timestamp_start = \
             datetime.datetime.now(pytz.timezone('US/Eastern'))
@@ -50,9 +62,9 @@ class Trainer(object):
             'epoch',
             'iteration',
             'train/loss',
-            # 'train/acc',
+            'train/acc',
             'valid/loss',
-            # 'valid/acc',
+            'valid/acc',
             'elapsed_time',
         ]
         if not osp.exists(osp.join(self.out, 'log.csv')):
@@ -66,101 +78,79 @@ class Trainer(object):
 
 
     # -----------------------------------------------------------------------------
-    def validate(self):
+    def validate(self, max_num=500):
     # -----------------------------------------------------------------------------
         training = self.model.training
         self.model.eval()
-        MAX_NUM = 500 # HACK: stop after 500 images
+        MAX_NUM = max_num # HACK: stop after 500 images
 
-        n_class = self.val_loader.dataset.classses
+        n_class = len(self.val_loader.dataset.classes)
         val_loss = 0
         label_trues, label_preds = [], []
 
         for batch_idx, (data, (target)) in tqdm.tqdm(
                 enumerate(self.val_loader), total=len(self.val_loader),
-                desc='Valid iteration=%d' % self.iteration, ncols=80,
-                leave=True):
+                desc='Val=%d' % self.iteration, ncols=80,
+                leave=False):
 
             # Computing val losses
             if self.cuda:
                 data, target = data.cuda(), target.cuda()
+
             data, target = Variable(data), Variable(target)
             score = self.model(data)
-            loss = kl_div2d(score, target, size_average=self.size_average) # DEBUG: MSE loss
+            loss = self.criterion(score, target)
+
             if np.isnan(float(loss.data[0])):
-                raise ValueError('loss is NaN while validation')
+                raise ValueError('loss is NaN while validating')
+
             val_loss += float(loss.data[0]) / len(data)
 
-            # Visualization
-            imgs = data.data.cpu()
-            if self.train_loader.dataset.bins == 'one-hot':
-                # visualize only hue predictions
-                lbl_pred = score_hue.data.max(1)[1].cpu().numpy()[:, :, :]
-                lbl_true = target_hue.data.cpu()
-                del score_hue, target_hue, score_chroma, target_chroma
-            elif self.train_loader.dataset.bins == 'soft':
-                lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]
-                _, lbl_true = target.data.max(dim=3) # EDIT - .data
-                lbl_true = lbl_true.cpu()
-                del target, score
-
+            lbl_pred = score.data.max(1)[1].cpu().numpy()
+            lbl_true = target.data.cpu()
             lbl_pred = lbl_pred.squeeze()
             lbl_true = np.squeeze(lbl_true.numpy())
-            
-            if len(visualizations) < 9:
-                assert imgs.size()[0]==1   # HACK: assumes 1 image in a batch!
-                img = \
-                    PIL.Image.open(self.val_loader.dataset.files['val'][batch_idx]) 
-                img = self.val_loader.dataset.rescale(img) # orig RGB image
-                img_l = np.squeeze(imgs.numpy()) + self.val_loader.dataset.mean_l
-                viz = utils.visualize_segmentation(lbl_pred=lbl_pred,
-                        lbl_true=lbl_true, img=img, 
-                        im_l=img_l, n_class=n_class)
-                visualizations.append(viz)
+
+            del target, score
 
             label_trues.append(lbl_true)
             label_preds.append(lbl_pred)
 
-            del lbl_true, lbl_pred, data, loss, imgs
+            del lbl_true, lbl_pred, data, loss
 
             if batch_idx > MAX_NUM:
                 break
 
-        out = osp.join(self.out, 'visualization_viz')
-        if not osp.exists(out):
-            os.makedirs(out)
-        out_file = osp.join(out, 'iter%012d.jpg' % self.iteration)
-        scipy.misc.imsave(out_file, utils.get_tile_image(visualizations))
-        del visualizations
-
         # Computing metrics
-        metrics = utils.label_accuracy_score(
-            label_trues, label_preds, n_class)
         val_loss /= len(self.val_loader)
+        val_acc = self.eval_metric(label_trues, label_preds)
+
+        # Logging
         with open(osp.join(self.out, 'log.csv'), 'a') as f:
             elapsed_time = (
                 datetime.datetime.now(pytz.timezone('US/Eastern')) -
                 self.timestamp_start).total_seconds()
-            log = [self.epoch, self.iteration] + [''] * 5 + \
-                  [val_loss] + list(metrics) + [elapsed_time]
+            log = [self.epoch, self.iteration] + [''] * 2 + \
+                  [val_loss, val_acc] + [elapsed_time]
             log = map(str, log)
             f.write(','.join(log) + '\n')
 
-        del label_trues, label_preds, val_loss
-        gc.collect()
+        del label_trues, label_preds
 
-        mean_iu = metrics[2]
-        is_best = mean_iu > self.best_mean_iu
+        # Saving the best performing model
+        is_best = val_acc > self.best_acc
         if is_best:
-            self.best_mean_iu = mean_iu
+            self.best_acc = val_acc
+
         torch.save({
             'epoch': self.epoch,
             'iteration': self.iteration,
             'arch': self.model.__class__.__name__,
             'optim_state_dict': self.optim.state_dict(),
             'model_state_dict': self.model.state_dict(),
-            'best_mean_iu': self.best_mean_iu,
+            'best_acc': self.best_acc,
         }, osp.join(self.out, 'checkpoint.pth.tar'))
+
         if is_best:
             shutil.copy(osp.join(self.out, 'checkpoint.pth.tar'),
                         osp.join(self.out, 'model_best.pth.tar'))
@@ -186,8 +176,8 @@ class Trainer(object):
                 continue  # for resuming
             self.iteration = iteration
 
-            # if self.iteration % self.interval_validate == 0:
-            #     self.validate()
+            if self.iteration % self.interval_validate == 0:
+                self.validate()
 
             assert self.model.training
 
@@ -195,7 +185,7 @@ class Trainer(object):
             if self.cuda:
                 data, target = data.cuda(), target.cuda()
             data, target = Variable(data), Variable(target)
-            score = self.model(data)
+            score = self.model(data)  # batch_size x num_class
 
             loss = self.criterion(score, target)
 
@@ -209,7 +199,11 @@ class Trainer(object):
             self.optim.step()
 
             # Computing metrics
-            # TODO
+            lbl_pred = score.data.max(1)[1].cpu().numpy()
+            lbl_pred = lbl_pred.squeeze()
+            lbl_true = target.data.cpu()
+            lbl_true = np.squeeze(lbl_true.numpy())
+            train_accu = self.eval_metric([lbl_pred], [lbl_true])
 
             # Logging
             with open(osp.join(self.out, 'log.csv'), 'a') as f:
@@ -217,7 +211,7 @@ class Trainer(object):
                     datetime.datetime.now(pytz.timezone('US/Eastern')) -
                     self.timestamp_start).total_seconds()
                 log = [self.epoch, self.iteration] + [loss.data[0]] + \
-                      [''] * 5 + [elapsed_time]
+                      [train_accu] + [''] * 2 + [elapsed_time]
                 log = map(str, log)
                 f.write(','.join(log) + '\n')
                 # print '\nEpoch: ' + str(self.epoch) + ' Iter: ' + str(self.iteration) + \
@@ -228,18 +222,14 @@ class Trainer(object):
 
 
     # -----------------------------------------------------------------------------
-    def eval_metric(self, score, target, n_class):
+    def eval_metric(self, lbl_pred, lbl_true):
     # -----------------------------------------------------------------------------
-        metrics = []
-        lbl_pred = score.max(1)[1].cpu().numpy()[:, :, :]
-        lbl_true = target.cpu().numpy()
+        # Over-all accuracy
+        # TODO: per-class accuracy
+        accu = []
         for lt, lp in zip(lbl_true, lbl_pred):
-            acc, acc_cls, mean_iu, fwavacc = \
-                utils.label_accuracy_score(
-                    [lt], [lp], n_class=n_class)
-            metrics.append((acc, acc_cls, mean_iu, fwavacc))
-        metrics = np.mean(metrics, axis=0)
-        return metrics
+            accu.append(np.mean(lt == lp))
+        return np.mean(accu)
 
 
     # -----------------------------------------------------------------------------
@@ -252,3 +242,4 @@ class Trainer(object):
             self.train_epoch()
             if self.iteration >= self.max_iter:
                 break
+
